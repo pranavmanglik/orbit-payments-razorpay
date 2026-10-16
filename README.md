@@ -1,7 +1,12 @@
 # Orbit Payments Razorpay
 
 `orbit-payments-razorpay` implements the `orbit-payments` contract using Razorpay Orders, refunds,
-and the official Razorpay Python SDK.
+and the official Razorpay Python SDK 2.x.
+
+The 2.x SDK line removes its runtime dependency on `pkg_resources`. Setuptools 82 removed that
+module, so SDK 1.x can fail during import in clean runtime environments. Orbit does not add or pin
+Setuptools as a runtime compatibility shim; see the [Razorpay SDK changelog](https://github.com/razorpay/razorpay-python/blob/master/CHANGELOG.md)
+and [Setuptools deprecation notice](https://setuptools.pypa.io/en/stable/deprecated/pkg_resources.html).
 
 ```bash
 python -m pip install orbit-payments-razorpay

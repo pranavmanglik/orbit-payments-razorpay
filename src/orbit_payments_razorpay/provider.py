@@ -62,6 +62,7 @@ class _TimeoutAdapter(HTTPAdapter):
         cert: str | tuple[str, str] | None = None,
         proxies: dict[str, str] | None = None,
     ) -> Response:
+        """Send one SDK request with the configured finite timeout when unspecified."""
         return super().send(
             request,
             stream=stream,
@@ -91,6 +92,7 @@ class RazorpayPaymentProvider:
         self._semaphore = asyncio.Semaphore(config.max_concurrent_requests)
         self._active: set[asyncio.Task[Any]] = set()
         self._closed = False
+        self._close_task: asyncio.Task[None] | None = None
 
     async def create_payment(self, request: PaymentRequest) -> PaymentSession:
         """Create a Razorpay Order with a stable receipt for reconciliation."""
@@ -170,11 +172,7 @@ class RazorpayPaymentProvider:
             payment_entity = (
                 payment_data.get("entity", {}) if isinstance(payment_data, dict) else {}
             )
-            order_data = payload.get("order", {}) if isinstance(payload, dict) else {}
-            order_entity = order_data.get("entity", {}) if isinstance(order_data, dict) else {}
             payment_id = payment_entity.get("id") if isinstance(payment_entity, dict) else None
-            if not payment_id and isinstance(order_entity, dict):
-                payment_id = order_entity.get("id")
             timestamp = event.get("created_at")
             return VerifiedWebhook(
                 provider="razorpay",
@@ -202,17 +200,30 @@ class RazorpayPaymentProvider:
         return hmac.compare_digest(expected, signature.lower())
 
     async def aclose(self) -> None:
-        """Drain submitted worker calls and close the SDK-owned requests session."""
-        if self._closed:
-            return
+        """Stop submissions, drain worker calls, and close sessions created by this adapter.
+
+        The cleanup task is shared by concurrent callers and shielded from cancellation of any
+        individual caller. A caller may stop waiting, but cleanup continues and a later call can
+        await the same task. Sessions supplied through an injected SDK client remain caller-owned.
+        """
         self._closed = True
-        if self._active:
-            await asyncio.gather(
-                *(asyncio.shield(task) for task in tuple(self._active)), return_exceptions=True
-            )
+        task = self._close_task
+        retry_failed_close = (
+            task is not None and task.done() and (task.cancelled() or task.exception() is not None)
+        )
+        if task is None or retry_failed_close:
+            task = asyncio.create_task(self._close_resources())
+            self._close_task = task
+        await asyncio.shield(task)
+
+    async def _close_resources(self) -> None:
+        """Drain submitted SDK calls before closing every adapter-owned session."""
+        active = tuple(self._active)
+        if active:
+            await asyncio.gather(*(asyncio.shield(task) for task in active), return_exceptions=True)
         if self._owns_clients:
             with self._clients_lock:
-                clients, self._clients = self._clients, []
+                clients = tuple(self._clients)
 
             async def close_session(client: Any) -> None:
                 session = getattr(client, "session", None)
@@ -222,9 +233,20 @@ class RazorpayPaymentProvider:
             outcomes = await asyncio.gather(
                 *(close_session(client) for client in clients), return_exceptions=True
             )
-            failure = next((result for result in outcomes if isinstance(result, Exception)), None)
+            failed_client_ids = {
+                id(client)
+                for client, outcome in zip(clients, outcomes, strict=True)
+                if isinstance(outcome, BaseException)
+            }
+            with self._clients_lock:
+                self._clients = [
+                    client for client in self._clients if id(client) in failed_client_ids
+                ]
+            failure = next(
+                (result for result in outcomes if isinstance(result, BaseException)), None
+            )
             if failure is not None:
-                raise RuntimeError("Could not close every Razorpay SDK session.") from failure
+                raise RuntimeError("Could not close every Razorpay SDK session.") from None
 
     async def __aenter__(self) -> RazorpayPaymentProvider:
         if self._closed:

@@ -1,6 +1,6 @@
 # Roadmap
 
-This repository is pre-alpha. Current scope is Razorpay order creation/retrieval, refunds, and
+This repository is alpha. Current scope is Razorpay order creation/retrieval, refunds, and
 signature verification through Orbit Payments.
 
 Subscriptions, payment links, settlements, disputes, payouts, hosted sessions, and automatic retry

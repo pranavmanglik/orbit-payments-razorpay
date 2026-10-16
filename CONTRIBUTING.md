@@ -1,4 +1,4 @@
-# Contributing to Orbit Storage
+# Contributing to Orbit Payments Razorpay
 
 Contributions are welcome. Read the [package overview](README.md), [architecture guide](docs/architecture/overview.md), and [operations guide](docs/operations/README.md) before changing public behavior. Keep changes within this package's documented contract and preserve the Orbit Core and capability boundaries.
 
@@ -7,6 +7,7 @@ Contributions are welcome. Read the [package overview](README.md), [architecture
 Use the package-specific [development guide](docs/development/README.md). The following commands are the baseline local checks for this repository:
 
 ```bash
+python -m pip install -e ../orbit-workers -e ../orbit-payments
 python -m pip install -e '.[dev]'
 pytest
 ruff check src tests

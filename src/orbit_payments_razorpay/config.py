@@ -35,6 +35,7 @@ class RazorpayConfig(BaseModel):
     @field_validator("key_id", "key_secret", "webhook_secret")
     @classmethod
     def validate_secret(cls, value: SecretStr) -> SecretStr:
+        """Reject empty API and webhook credentials after trimming whitespace."""
         if not value.get_secret_value().strip():
             raise ValueError("Razorpay credentials must not be empty.")
         return value
